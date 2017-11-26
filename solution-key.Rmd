@@ -1,0 +1,413 @@
+---
+title: "Challenge A - Solution key"
+author: "Rossi Abi-Rafeh"
+date: "11/7/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Task 1A - Predicting house prices in Ames, Iowa
+
+In this task, you will predict the sale price of residential property in Ames, a city in Iowa, using a simple linear model. To do so, you have the prices of the last sale of residential property in Ames, Iowa from 2006 to 2010, and a large number of features describing very precisely every property. The training data is on Moodle (train.csv).
+
+Information about the data : 
+http://www.amstat.org/publications/jse/v19n3/decock/DataDocumentation.txt
+
+
+Step 1 : Import the data in R in a data.frame (or similar) format
+
+
+```{r housing-init, echo = TRUE}
+load.libraries <- c('tidyverse', 'knitr')
+install.lib <- load.libraries[!load.libraries %in% installed.packages()]
+for(libs in install.lib) install.packages(libs, dependencies = TRUE, repos = "https://cloud.r-project.org")
+sapply(load.libraries, require, character = TRUE)
+
+# +0.25 if correctly load libraries - other ways OK as long as properly installed and loaded
+```
+
+
+```{r housing-step1-sol, echo = TRUE}
+
+train <- read_csv(file = "data/raw-data/train.csv")
+test <- read_csv(file = "data/raw-data/test.csv")
+
+
+# + 0.25: 1 data frame for train
+# + 0.25 1 data frame for test
+# + 0.25 if column names are be column names NOT the first row; 0 if anything else
+```
+
+
+Step 2 : What is the number of observations? What is the target/outcome/dependant variable? How many features can you include?
+
+Solution
+```{r structure}
+dim(train)
+# +0.5 if number of observations is correct
+```
+
+Target/Outcome/Dependant is SalePrice (+0.25)
+79 features : 81 - 2 (Id and SalePrice) (+0.25)
+
+Step 3 : Is your target variable continuous or categorical? What is its class in R? Is this a regression or a classification problem?
+
+Solution : Target variable is the sale price of a house, it's a continuous variable (+0.5)
+
+```{r housing-step3-sol, echo= TRUE}
+#either
+class(train$SalePrice)
+#or 
+train # only if train is in tidyverse, ie a tbl_df
+
+# +0.25
+```
+Since the outcome is continuous, this is a regression problem (+0.25)
+
+Step 4 : What are two numeric features in your data?
+
+Solution : name any two numeric features in the data set (+1) - 0 if named a numeric feature that is conceptually a categorical variable unless justified
+
+Step 5: Summarize the numeric variables in your data set in a nice table.
+
+```{r housing-step5-sol, echo= TRUE}
+summary(train) #that is the minimum required, gets +0.75
+```
+
+
+Step 6 : Plot the histogram of the numeric variables that you deem to be interesting. (At least 3.) Show me the plots in your pdf.
+
+```{r housing-step6-sol, echo= TRUE}
+hist(train$YearBuilt)
+hist(train$LotArea)
+hist(train$`1stFlrSF`)
+
+# alternatively
+ggplot(train)
+
+# +0.25 on each plot (max 0.75)
+# +0.25 if mfrow
+
+par(mfrow = c(1,3))
+ggplot(train) + geom_histogram(mapping = aes(x = YearBuilt))
+ggplot(train) + geom_histogram(mapping = aes(x = LotArea))
+ggplot(train) + geom_histogram(mapping = aes(x = `1stFlrSF`))
+
+```
+
+
+Step 7 : Are there any missing data? How many observations have missing data? How do you solve this problem?
+
+
+Solution : 
+
+```{r missing data, echo= TRUE}
+head(train) # to check the first rows for missing data by eyeballing
+# +0.1
+
+train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+# here i summarize the data set using the function sum(is.na()); is.na(.) gives me a column that is equal to TRUE when the row has a missing value (NA) or FALSE when it doesn't, so sum(is.na(.)) gives me the number of missing values for a column, then i gather the data to make it nicer, then i drop all the variables that do not have missing observations
+
+# +0.5 if some manipulation to compute the number of missing observations by column; if compute number of missing variables overall only +0.3
+```
+
+Checking the first rows of the data indicates that there are columns which have missing values.
+
+There are some variables with a lot of missing observations, and some other variables that have only some missing observations. 
+
+Visualization for the missing data (just for fun, you don't need to make this, but learn)
+
+```{r missing data_plot}
+
+plot_Missing <- function(data_in, title = NULL){
+  temp_df <- as.data.frame(ifelse(is.na(data_in), 0, 1))
+  temp_df <- temp_df[,order(colSums(temp_df))]
+  data_temp <- expand.grid(list(x = 1:nrow(temp_df), y = colnames(temp_df)))
+  data_temp$m <- as.vector(as.matrix(temp_df))
+  data_temp <- data.frame(x = unlist(data_temp$x), y = unlist(data_temp$y), m = unlist(data_temp$m))
+  ggplot(data_temp) + geom_tile(aes(x=x, y=y, fill=factor(m))) + scale_fill_manual(values=c("white", "black"), name="Missing\n(0=Yes, 1=No)") + theme_light() + ylab("") + xlab("") + ggtitle(title)
+}
+
+
+plot_Missing(train[,colSums(is.na(train)) > 0])
+```
+
+Ideally, if a variable has a lot of missing observations, you should probably take out that variable unless it's very important. In this case, I remove the variables that have more than 100 missing observations, since they are LotFrontage, Alley, FireplaceQu, PoolQC, Fence, MiscFeature. Except Fence or Alley maybe, there are not very critical for determining the price of a house:
+
+```{r missing data 2, echo= TRUE}
+remove.vars <- train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 100) %>% select(feature) %>% unlist
+
+train <- train %>% select(- one_of(remove.vars))
+
+# +0.2 for removing variables with a lot of missing values with some justification; 0 if no removal of variables, 0 if no justification whatsoever
+```
+
+For the rest of the variables with missing values, I remove the observations with the missing values.
+
+```{r missing data 3, echo= TRUE}
+
+train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+
+train <- train %>% filter(is.na(GarageType) == FALSE, is.na(MasVnrType) == FALSE, is.na(BsmtFinType2) == FALSE, is.na(BsmtExposure) == FALSE, is.na(Electrical) == FALSE)
+# remove rows with NA in some of these variables, check if you take all missing values like this
+
+# make sure it's all clean : Yes
+train %>% summarise_all(.funs = funs(sum(is.na(.)))) %>% gather(key = "feature", value = "missing.observations") %>% filter(missing.observations > 0)
+
+# + 0.2 for removing observations with missing values
+```
+
+
+Step 8 : How many duplicate observations are there in the dataset? Remove any duplicates.
+
+Solution : 
+```{r housing-step8-sol}
+# Check for duplicated rows.
+cat("The number of duplicated rows are", nrow(train) - nrow(unique(train)))
+
+```
+(+1)
+
+Step 9 : Convert all character variables to factors
+
+```{r housing-step9-sol, echo = TRUE}
+#Convert character to factors 
+cat_var <- train %>% summarise_all(.funs = funs(is.character(.))) %>% gather(key = "feature", value = "is.chr") %>% filter(is.chr == TRUE) %>% select(feature) %>% unlist
+# cat_var is the vector of variable names that are stored as character
+
+train %>% mutate_at(.cols = cat_var, .funs = as.factor)
+# i transform them all to factors
+
+# +0.5 if done manually, 0.75 if done through some smarter way
+# +0.25 if commented
+```
+
+Step 10 : Fit a linear model including all the variables. Eliminate iteratively the least important variables to get to the most parsimonious yet predictive model. Explain your procedure and interpret the results. **NOTE 1 :** You should have an R2 of at least 70%. **NOTE 2 :** Do not use interaction terms.  You can use powers and transformations (square, logs, etc...) of a feature/explanatory variable, but no interactions.
+
+```{r housing-step10-sol, echo = TRUE}
+lm_model_1 <- lm(SalePrice ~ ., data= train)
+summary(lm_model_1)
+
+# +0.25 for lm with all the features
+
+sum_lm_model_1 <- summary(lm_model_1)$coefficients #take only the table of coefficients and t stats and pvalues
+class(sum_lm_model_1) #is a matrix
+significant.vars <- row.names(sum_lm_model_1[sum_lm_model_1[,4] <= 0.01,]) #sum_lm_model_1[,4] is the p-value of each coefficient, here then i choose the variables that have coefficients significant at the 1% level
+
+# choose any selection of such variables and run a more parcimonious model
+lm_model_2 <- lm(SalePrice ~ MSZoning + LotArea + Neighborhood  + YearBuilt + OverallQual, data = train)
+summary(lm_model_2)
+
+# +0.5 for parsimonious model if R2 > 70% and no interaction terms
+
+# + 0.25 for text answer and justification
+```
+
+Step 11 : Use the model that you chose in step 10 to make predictions for the test set (found in test.csv). Export your predictions in a .csv file (like the example in sample_submissions.csv) and submit it. 
+
+```{r housing-step11-sol, echo = TRUE}
+
+prediction <- data.frame(Id = test$Id, SalePrice_predict = predict(lm_model_2, test, type="response"))
+write.csv(x = prediction, file = "predictions.csv", na = "NA", quote = FALSE, row.names = FALSE)
+
+# +0.5 if you use predict 
+# +0.5 if export as .csv
+```
+
+Step 12 : How can you judge the quality of your model and predictions? What simple things can you do to improve it?
+
+Solution : 
+Check R2, or logloss -  but on a test sample not on the training set. (+0.5) / only 0.25 if no mention of test 
+Allow interactions, use higher powers, or any other convincing method (+0.5)
+
+
+
+******
+
+
+
+## Task 2 A - Overfitting in Machine Learning
+ML algorithms are flexible methods that you can use to understand the relationship between an outcome $y$ and features/explanatory variables $x$, and to predict $y$ for some new observation of $x$. Generally, we conceptualize the problem as $y = f(x) + \epsilon$. Only $y$ and $x$ are observed in practice. We do not observe $f$, or $\epsilon$ (it's the noise). The goal of the econometrics/ML algorithms is to  find (estimate/train) a $\hat{f}$ that fits the data well, and allows us to predict $y_i$ for a new individual $x_i$.
+
+The flexibility of a ML algorithm is chosen by the analyst. When you do a linear regression in econometrics, you're doing a low-flexibility algorithm : you assume the shape of $f$ is linear AND that it is the same on all the domain of $x$. 
+
+If in reality, your $f$ is actually equal to the square function $f(x) = x^2$ than a linear regression won't give you good results, because the assumption you make on $f$ is too restrictive and false. 
+
+If in reality, your $f$ is equal to the absolute value function $f(x) = |x| $ then again using a linear regression to estimate $f$ won't give good results : you will have a horizontal line as a result, but the absolute value function is not a horizontal line! Although the absolute value function is linear on $(-\inf, 0]$ and then again $[0, +\inf)$, it does not have the same slope parameter on these two segments (slope equal to -1, then equal to 1). A linear regression is not flexible enough to allow estimating two different slopes on two different regions.
+
+If simple linear regression is not flexible enough, other ML algorithms are too flexible. This is known as overfitting, and is a common and important problem in applied econometrics and machine learning.
+
+In this task, you will replicate a simulation and the graphs below, and by doing so, you will have more insights about why linear regression may not be the best method to use for prediction. In this simulation, you will create data for which you know the true model (because you created the data), and you will be able to check how linear regression performs compared to the true model. In real-life situations, you do not know $f$, so you cannot do this comparison.
+
+The true model you will use is : 
+
+(T) $y = x^3 +\epsilon$; 
+
+$x$ is normally distributed mean 0, and standard deviation 1;
+
+$\epsilon$ the noise, is also normally distributed mean 0, and standard deviation 1.
+
+Set your seed to 1 for this challenge.
+
+```{r overfit, echo = FALSE, eval = FALSE, include = FALSE}
+rm(list = ls())
+
+# Simulating an overfit
+library(tidyverse)
+#library(np)
+#library(caret)
+# True model : y = x^3 + epsilon
+set.seed(1)
+Nsim <- 150
+b <- c(0,1)
+x0 <- rep(1, Nsim)
+x1 <- rnorm(n = Nsim)
+
+X <- cbind(x0, x1^3)
+y.true <- X %*% b
+
+eps <- rnorm(n = Nsim)
+y <- X %*% b + eps
+
+df <- tbl_df(y[,1]) %>% rename(y = value) %>% bind_cols(tbl_df(x1)) %>% rename(x = value) %>% bind_cols(tbl_df(y.true[,1])) %>% rename(y.true = value)
+
+
+# The true relationship between y and x is 
+# i.e. conditional on knowing x, the best prediction you can give of y, is on this line. However, this line is not known, and needs to be estimated/trained/etc...
+
+
+# Simulate Nsim = 100 points of (y,x)
+ggplot(df) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true))
+
+# Split sample into training and testing, 80/20
+training.index <- createDataPartition(y = y, times = 1, p = 0.8)
+df <- df %>% mutate(which.data = ifelse(1:n() %in% training.index$Resample1, "training", "test"))
+
+training <- df %>% filter(which.data == "training")
+test <- df %>% filter(which.data == "test")
+
+# Train linear model y ~ x on training
+lm.fit <- lm(y ~ x, data = training)
+summary(lm.fit)
+
+df <- df %>% mutate(y.lm = predict(object = lm.fit, newdata = df))
+training <- training %>% mutate(y.lm = predict(object = lm.fit))
+```
+
+Step 1 : If the true model is (T), what is $f$ in this case?
+
+Solution : In this case, $f$ is such that $f(x)  = x^3$ (+1)
+
+Step 2 : You have a new individual of interest, Paul. You know that $x_{Paul} = 2$. If you know $f$ in practice, and $E[\epsilon | x] = 0$ but not the exact value of $\epsilon_{Paul}$, what is the best prediction for $y_{Paul}$ that you can make? Note : I call this best prediction $\hat{y}^{T}$. Its value for Paul is $\hat{y}^{T}_{Paul}$.
+
+Solution : The best prediction of $y$ for Paul is $\hat{y}^{T}_{Paul} = f(x_{Paul}) = 2^3 = 8$ (+1)
+
+In practice, we do not know $f$.
+
+Step 3 : Simulate 150 independant draws of $(x,y)$ following (T). Put them in a table with columns x and y. *Hint : you need also to simulate 150 points of $\epsilon$.* 
+
+```{r step3-sol, echo = TRUE, eval = TRUE, include = TRUE}
+rm(list = ls()) #clean environment, remove all variables/data created before
+
+# Simulating an overfit
+library(tidyverse)
+library(np)
+library(caret)
+# True model : y = x^3 + epsilon
+set.seed(1) # very important for replication
+Nsim <- 150 # Nsim = number of simulations
+b <- c(0,1) #
+x0 <- rep(1, Nsim) 
+x1 <- rnorm(n = Nsim) # x1 is x from the question, I draw here a vector of size Nsim of x from a normal N(0,1)
+
+X <- cbind(x0, x1^3) # this is X such that y = Xb + epsilon, so X = 0 + x^3 = x0 + x1^3 
+# x0 is a vector of 0, x1 is a random vector of size Nsim drawn from normal N(0,1)
+y.true <- X %*% b
+
+eps <- rnorm(n = Nsim) # draw a vector of size Nsim from normal N(0,1), this is epsilon
+y <- X %*% b + eps # the simulated y is then computed following the true model
+
+df <- tbl_df(y[,1]) %>% rename(y = value) %>% bind_cols(tbl_df(x1)) %>% rename(x = value) %>% bind_cols(tbl_df(y.true[,1])) %>% rename(y.true = value) # the previous y and x are matrix and vector, I transform them into a dataframe to use the tidyverse
+
+# +0.25 for any code that draws 150 observations using rnorm for epsilon
+# +0.25 for any code that draws 150 observations using rnorm for x
+# +0.25 for computing 150 observations of y
+# +0.25 for clear comments on the code, +0 if code is not well commented.
+```
+
+Step 4 : Make a scatterplot of the simulated data. See Figures.
+
+```{r overfit-step4, echo = FALSE, fig.cap = "Step 4 - Scatterplot x - y"}
+ggplot(df) + geom_point(mapping = aes(x = x, y = y))
+# + 0.25 if set.seed(1) in this step or the previous
+# + 0.75 if scatterplot of x and y; 0 if anything else
+```
+
+Step 5 : On the same plot, draw the line of $\hat{y}^T$.
+
+
+```{r overfit-step5, echo = FALSE, fig.cap = "Step 5 - True regression line"}
+ggplot(df) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) # I store the true model f(x) = x^3 (or the best prediction line)  in the column y.true of the data.frame df, and I draw it by adding geom_line to the scatter plot
+
+
+# + 0.75 if scatterplot of x, y and line of f
+# + 0.25 for comment explaining either where is f stored as a variable, or how they draw the line
+```
+
+Step 6 :  Split your sample into two. A training set and a test set. Plot the same scatterplot as in Step 1, differenciating in colour between the points you will use for training and the points you're keeping aside for the test.
+
+```{r overfit-step6-sol, echo = TRUE}
+# Split sample into training and testing, 80/20
+training.index <- createDataPartition(y = y, times = 1, p = 0.8) #index of the rows I want to keep
+df <- df %>% mutate(which.data = ifelse(1:n() %in% training.index$Resample1, "training", "test")) # I create a new column in df (thus the function mutate) that is categorical and is equal to training if the index of the row (i compute through 1:n()) is in the vector training.index; remember training.index contains the number of the rows that are randomly selected into the training set.
+
+training <- df %>% filter(which.data == "training") #here i subset the table into a training sub-table and a test sub-table
+test <- df %>% filter(which.data == "test")
+
+# +0.25 if split sample using any method that resamples BUT DOES NOT REPLACE; 0 if uses a sample that does replacement; 0 if uses a method that does not partition (i.e. training + test = full sample.)
+# + 0.5 if you plot with different colors
+# +0.25 for commenting the steps
+```
+
+
+Step 7 : Train (fit/estimate) a linear regression model on your training set. Call it lm.fit in R.
+
+```{r overfit-step7-sol, echo = TRUE}
+# Train linear model y ~ x on training
+lm.fit <- lm(y ~ x, data = training) #regress y on x only on training data
+summary(lm.fit)
+
+# +0.75 if proper use of lm or anything that runs a linear model properly, 0 for anything else, 0.25 if linear model on all the data
+# +0.25 for commenting
+```
+
+
+Step 8 : Draw, in red, the line of the predictions from lm.fit on the scatterplot of the training data. (This is the same as the regression line) Compare it to $\hat{y}^T$. Is a linear regression a good method here? Why or why not?
+
+```{r overfit-step8-sol, echo = TRUE}
+training <- training %>% mutate(y.lm = predict(object = lm.fit))
+# I add a column to training that has the linear model predictions, then I plot them
+ggplot(training) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.lm), color = "orange")
+# same plot as before with scatterplot and true line, now add orange line of predictions from linear model.
+
+# + 0.25 for making predictions using predict function
+# + 0.5 for the right plot
+# + 0.25 for commenting the steps
+```
+
+```{r overfit-step6, echo = FALSE, fig.cap = "Step 6 - Training and test data"}
+ggplot(df) + geom_point(mapping = aes(x = x, y = y, color = which.data))
+```
+
+```{r overfit-step8, echo = FALSE, fig.cap = "Step 8 - Linear regression line"}
+ggplot(training) + geom_point(mapping = aes(x = x, y = y)) + 
+  geom_line(mapping = aes(x = x, y = y.true)) + 
+  geom_line(mapping = aes(x = x, y = y.lm), color = "orange")
+```
